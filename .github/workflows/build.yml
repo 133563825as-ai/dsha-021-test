@@ -135,45 +135,59 @@ jobs:
                      "ndk;${{ steps.toolchain.outputs.ndk }}"
           sdkmanager --list_installed | tail -20
 
-      - name: Fetch locked offline assets from the official APK
+      - name: Fetch locked offline rootfs from the official APK
         env:
           ROOTFS_SHA: ${{ inputs.offline_rootfs_sha256 }}
           UBUNTU_TOOLS_SHA: ${{ inputs.ubuntu_tools_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/official
-          echo '下载官方 APK（仅用于取出离线资产）'
+          echo '下载官方 v0.1.7-rc2 APK（只取离线 rootfs；其余资产现场重建）'
           curl -fL --retry 4 --retry-delay 5 -o /tmp/official/dsha.apk "$OFFICIAL_APK_URL"
           ls -l /tmp/official/dsha.apk
-          python3 - <<'PY'
+          python3 - <<'PY_APK'
           import hashlib, os, zipfile
-          # 这三份是 prepare-standard-assets.py 的硬输入：
-          #   offline-rootfs.bin      —— 离线 rootfs
-          #   ubuntu-tools.bin        —— 离线基础工具
-          #   ubuntu-tools.inputs.json —— 它的依赖锁（含绑定 rootfs 的 dpkg 状态哈希）
-          # 三者由官方包一起产出，必须同源取出；单独重新下载 deb 会与 rootfs 对不上。
-          want = {
-              'assets/offline-rootfs.bin': 'app/src/main/assets/offline-rootfs.bin',
-              'assets/ubuntu-tools.bin': 'app/src/main/assets/ubuntu-tools.bin',
-              'assets/ubuntu-tools.inputs.json': 'app/src/main/assets/ubuntu-tools.inputs.json',
-          }
           with zipfile.ZipFile('/tmp/official/dsha.apk') as apk:
               names = set(apk.namelist())
-              print('APK 内资产条目数：', len(names))
-              for entry, target in want.items():
-                  if entry not in names:
-                      raise SystemExit('官方 APK 里没有 ' + entry)
-                  data = apk.read(entry)
-                  os.makedirs(os.path.dirname(target), exist_ok=True)
-                  with open(target, 'wb') as out:
-                      out.write(data)
-                  print(f'{entry} -> {target}  {len(data)} bytes  sha256={hashlib.sha256(data).hexdigest()}')
-          PY
-          # 可选校验：传入固定 SHA-256 时强制比对
+              print('APK 内条目数：', len(names))
+              data = apk.read('assets/offline-rootfs.bin')
+              target = 'app/src/main/assets/offline-rootfs.bin'
+              os.makedirs(os.path.dirname(target), exist_ok=True)
+              with open(target, 'wb') as out:
+                  out.write(data)
+              digest = hashlib.sha256(data).hexdigest()
+              print(f'assets/offline-rootfs.bin -> {target}  {len(data)} bytes  sha256={digest}')
+              # 官方包里的 ubuntu-tools.bin 只当「对照样本」：本仓库同一版本的
+              # prepare-ubuntu-tools.py 会现场重建同一份归档，用它证明重建没走样。
+              if 'assets/ubuntu-tools.bin' in names:
+                  oracle = hashlib.sha256(apk.read('assets/ubuntu-tools.bin')).hexdigest()
+                  open('/tmp/official/ubuntu-tools.oracle.sha256', 'w').write(oracle + '\n')
+                  print('对照样本 ubuntu-tools.bin sha256=', oracle)
+          PY_APK
           if [[ -n "${ROOTFS_SHA:-}" ]]; then
             echo "${ROOTFS_SHA}  app/src/main/assets/offline-rootfs.bin" | sha256sum -c -
           else
             echo '::notice title=offline-rootfs.bin 未锁定::把上面打印的 sha256 作为 workflow_dispatch 输入以强制校验'
+          fi
+
+      - name: Rebuild ubuntu-tools offline archive from the locked debs
+        # 官方包不打包 *.inputs.json（它被 .gitignore 排除且不进入 APK），而
+        # prepare-standard-assets.py 要求 bin 与 inputs.json 成对且与当前脚本自洽。
+        # 所以不伪造元数据，直接用同一版本脚本按锁定的 deb 重新生成两份产物。
+        run: |
+          set -euo pipefail
+          python3 tools/prepare-ubuntu-tools.py
+          sha256sum app/src/main/assets/ubuntu-tools.bin
+          cat app/src/main/assets/ubuntu-tools.inputs.json
+          if [[ -f /tmp/official/ubuntu-tools.oracle.sha256 ]]; then
+            oracle=$(cat /tmp/official/ubuntu-tools.oracle.sha256)
+            actual=$(sha256sum app/src/main/assets/ubuntu-tools.bin | awk '{print $1}')
+            if [[ "$oracle" == "$actual" ]]; then
+              echo "PASS 重建的 ubuntu-tools.bin 与官方包逐字节一致（$actual）"
+            else
+              echo "::error title=ubuntu-tools 重建与官方包不一致::oracle=$oracle actual=$actual"
+              exit 1
+            fi
           fi
           if [[ -n "${UBUNTU_TOOLS_SHA:-}" ]]; then
             echo "${UBUNTU_TOOLS_SHA}  app/src/main/assets/ubuntu-tools.bin" | sha256sum -c -
