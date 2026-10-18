@@ -246,6 +246,9 @@ final class RuntimeTools {
     static void applyEnvironment(Context context, File rootfs, Map<String, String> environment) {
         environment.put("DSHA_NATIVE_PLUGIN_MANAGER","1");
         environment.put("DSHA_ANDROID_RUNTIME","1");
+        // 容器内脚本（adb-pair / device-shell-policy）需要知道宿主自身包名：
+        // 发行包可能被改名重签，写死 com.dsh.client 会授权错对象、或漏保护自己。
+        environment.put("DSHA_SELF_PACKAGE", com.deepseekharness.app.BuildConfig.APPLICATION_ID);
         environment.put("DSHA_DNS_MODE",RuntimeHostPorts.shared().settings().dnsMode);
         String preload="--require=/usr/local/share/dsha/dns-compat.cjs";
         if(new File(rootfs,"usr/local/share/dsha/dns-compat.cjs").isFile()) {

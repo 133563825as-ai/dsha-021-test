@@ -32,8 +32,8 @@ public final class AdbBridge {
     /** assets 脚本版本：每次改脚本 +1，旧 APK 的残留脚本会因版本不符被强制重注入。
      *  16：原生默认拒绝、现场路径核验与全量应用分组；17：typed VScreen one-shot；
      *  18：票据改走封闭 stdin 管道，ADB 执行前消费且未知结果不重放；
-     *  19：设备脚本回归基线；20：虚拟屏启动命令携带运行时包名（发行包可改名重签）。 */
-    private static final String SCRIPT_VERSION = "20";
+     *  19：设备脚本回归基线；20：虚拟屏启动命令携带运行时包名；21：保活授权同样按运行时包名。 */
+    private static final String SCRIPT_VERSION = "21";
     private static final Object SETTINGS_LOCK = new Object();
     private static final java.util.concurrent.atomic.AtomicBoolean PAIRING = new java.util.concurrent.atomic.AtomicBoolean();
 
@@ -363,8 +363,9 @@ public final class AdbBridge {
      *  之后开机广播可自动开启无线调试（保活依赖）。 */
     private static String grantSecureSettings(ProotBootstrap proot) {
         try {
-            String pkg = "com.dsh.client";
-            String r = execOwned(proot, "python3 /root/.dsh/adb-pair.py --grant-keepalive 2>&1", 45_000);
+            String pkg = com.deepseekharness.app.BuildConfig.APPLICATION_ID;
+            String r = execOwned(proot, "python3 /root/.dsh/adb-pair.py --grant-keepalive --package "
+                    + com.deepseekharness.app.util.ShellQuote.arg(pkg) + " 2>&1", 45_000);
             android.util.Log.i("DSHA-ADB", com.deepseekharness.app.util.UiText.text("WRITE_SECURE_SETTINGS 授权结果: ") + SensitiveData.redact(r));
             return r != null && r.trim().endsWith("[EXIT=0]") ? com.deepseekharness.app.util.UiText.text("KEEPALIVE_OK: 已允许自动恢复无线调试")
                     : com.deepseekharness.app.util.UiText.text("KEEPALIVE_WARN: 连接已验证，但自动恢复授权未完成；重启后可能需手动打开无线调试\n") + SensitiveData.redact(r);

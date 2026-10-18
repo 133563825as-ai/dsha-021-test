@@ -53,8 +53,8 @@ env:
   OFFICIAL_APK_URL: https://github.com/DSH-APP/DSHA/releases/download/v0.1.7-rc2/dsha-0.1.7-rc2.apk
   # 仓库内测试证书的 SHA-256（小写十六进制）；签完必须与实测一致
   CI_TEST_CERT_SHA256: d97170a287714b9e93ec96b04cdd07cbee4f42e7a2d9934acaf2affceb72dd12
-  EXPECTED_PACKAGE: com.dsh.client
-  EXPECTED_VERSION_CODE: '182'
+  EXPECTED_PACKAGE: com.dsh.client.test
+  EXPECTED_VERSION_CODE: '183'
   EXPECTED_ABI: arm64-v8a
 
 defaults:
@@ -297,7 +297,8 @@ jobs:
       - name: Assemble standardRelease with the test keystore
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --stacktrace :app:assembleStandardRelease
+          # 测试包用独立 applicationId：与已安装的正式版共存，不必改名重签。
+          ./gradlew --no-daemon --stacktrace -Pdsha.applicationId=com.dsh.client.test :app:assembleStandardRelease
 
       - name: Verify the produced APK
         run: |
@@ -395,8 +396,9 @@ jobs:
           {
             echo 'DSHA 测试包：DSH 运行时 0.2.1-rc.2（基于 v0.1.7-rc2 源码适配）'
             echo
-            echo '- 应用名：DSHA 测试包；包名 com.dsh.client；versionCode 182'
-            echo '- 签名：仓库内测试证书（**不能覆盖安装正式版**，需先卸载或用另一台设备）'
+            echo '- 应用名：DSHA 测试包；包名 **com.dsh.client.test**；versionCode 183'
+            echo '- 独立 applicationId + 测试签名：**可与正式版同时存在，直接安装，无需卸载或改名重签**'
+            echo '- 与正式版数据互不影响（各自独立的数据目录）'
             echo '- 运行方式可在「设置 → 配置 → 运行方式」里切 proroot / proot'
             echo '- 虚拟屏：补齐 dsh-tool-vscreen 的 cordis.patch.yml（此前为空，插件从未装载）'
             echo

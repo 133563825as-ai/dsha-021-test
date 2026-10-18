@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """执行原生侧验证的设备操作计划；路径与进程信息从同一设备连接现场读取。"""
 import json
+import os
 import posixpath
 import re
 import shlex
+
+# 宿主自身包名：发行包可能被改名重签，不能写死 com.dsh.client。
+SELF_PACKAGE = os.environ.get('DSHA_SELF_PACKAGE') or 'com.dsh.client'
 
 
 class Blocked(Exception):
@@ -230,7 +234,7 @@ def stop_targets(plan, shell):
     plan['groups'] = groups
     by_name = {app['name']: app for app in apps}
     protected = {uid for app in apps if app['system'] or any(uid % 100000 < 10000 for uid in app['uids'])
-                 or app['name'] in ('com.dsh.client', 'moe.shizuku.privileged.api') for uid in app['uids']}
+                 or app['name'] in (SELF_PACKAGE, 'moe.shizuku.privileged.api') for uid in app['uids']}
     requested = list(plan['operands'])
     if plan['argv'][0] == 'kill':
         rows = checked(shell(argv_command(['ps', '-A', '-o', 'PID,UID,NAME']))).splitlines()

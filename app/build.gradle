@@ -12,10 +12,12 @@ android {
     ndkVersion '26.3.11579264'
 
     defaultConfig {
-        applicationId "com.dsh.client"
+        // 正式包保持 com.dsh.client；测试包可用 -Pdsha.applicationId=... 注入独立 ID，
+        // 从而与已装的正式版共存（签名不同、包名不同），不必改名重签。
+        applicationId (project.findProperty('dsha.applicationId') ?: "com.dsh.client")
         minSdk 30
         targetSdk 37
-        versionCode 182
+        versionCode 183
         versionName "0.2.1-rc2-dsh0.2.1-rc.2-test"
         testInstrumentationRunner project.findProperty('dsha.testRunner') ?: "com.deepseekharness.app.Rc13Instrumentation"
         ndk {

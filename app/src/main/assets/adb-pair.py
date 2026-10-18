@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# DSHA_ADB_SCRIPT_VERSION=20
+# DSHA_ADB_SCRIPT_VERSION=21
 """无线配对只握手一次；配对授权与连接验证分别反馈。
 
 PAIR_OK 表示配对完成；只有 CONNECT_OK 才能执行设备命令。
@@ -95,6 +95,8 @@ def main():
     ap.add_argument('--genkey', action='store_true')
     ap.add_argument('--verify-only', action='store_true', help='仅验证已有配对连接，不再配对')
     ap.add_argument('--grant-keepalive', action='store_true', help='配对设置专用：仅授予 DSHA 自身的保活权限')
+    ap.add_argument('--package', default=os.environ.get('DSHA_SELF_PACKAGE') or 'com.dsh.client',
+                    help='宿主自身包名（测试包可改名，默认取 DSHA_SELF_PACKAGE）')
     a = ap.parse_args()
     if not 0 <= a.port <= 65535 or not 0 <= a.connect_port <= 65535:
         print('INVALID_PORT: 端口必须在 1—65535，自动发现请留空')
@@ -110,7 +112,7 @@ def main():
         # 固定的应用设置操作，没有接收任意命令的“内部跳过”入口。
         try:
             result = adb.connect_with_retry(AdbDeviceTls, PythonRSASigner,
-                'pm grant com.dsh.client android.permission.WRITE_SECURE_SETTINGS',
+                'pm grant ' + a.package + ' android.permission.WRITE_SECURE_SETTINGS',
                 a.connect_port, a.host, connect_timeout=15, command_timeout=10)
             print(result.output); print('[EXIT=%d]' % result.exit_code)
             return result.exit_code
