@@ -29,6 +29,10 @@ on:
         type: boolean
   push:
     branches: [main]
+    # 只改文档时不重跑整包（一次构建 ~13 分钟，没必要为 markdown 付这份钱）
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 permissions:
   contents: write   # 需要为测试包创建 Release 资产（免登录下载）
