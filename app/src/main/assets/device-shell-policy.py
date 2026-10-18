@@ -258,7 +258,7 @@ def execute(plan, shell, result_class):
     if plan['kind'] == 'VIRTUAL_SCREEN':
         argv = plan.get('argv')
         source = plan.get('sourceApk')
-        if (not isinstance(argv, list) or len(argv) != 7 or argv[0] != 'app_process'
+        if (not isinstance(argv, list) or len(argv) != 9 or argv[0] != 'app_process'
                 or not isinstance(source, str) or not re.fullmatch(r'/data/app/[^\s]+\.apk', source)
                 or '..' in source.split('/') or '\\' in source or '//' in source
                 or argv[1] != '-Djava.class.path=' + source
@@ -266,6 +266,8 @@ def execute(plan, shell, result_class):
                 or argv[3] != 'com.deepseekharness.app.vscreen.VirtualScreenCore'
                 or argv[4:6] != ['--launch', '--port']
                 or not re.fullmatch(r'8[0-9]{3}', argv[6])
+                or argv[7] != '--package'
+                or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+', str(argv[8]))
                 or plan.get('nativeAuthorization') != 'managed-vscreen-start'
                 or not re.fullmatch(r'[a-f0-9]{48}', str(plan.get('nativeTicket', '')))
                 or plan.get('su', False)):

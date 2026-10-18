@@ -24,6 +24,7 @@ public final class DeviceShellPolicy {
         public String command() { return argv.isEmpty() ? "" : argv.get(0); }
     }
     private static Set<String> set(String words) { return new HashSet<>(Arrays.asList(words.split(" "))); }
+    private static final java.util.regex.Pattern PACKAGE = java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+");
     private static final Set<String> READ = set("id whoami pwd uname getprop getenforce ps pidof ls cat head tail wc grep stat readlink realpath df du free uptime printenv echo printf md5sum sha1sum sha256sum sha512sum true false");
     private static final Set<String> BLOCK = set("dd mkfs mke2fs mkfs.ext4 mkfs.f2fs fdisk sfdisk cfdisk parted sgdisk blockdev losetup wipefs setenforce chcon restorecon setprop mount umount unmount fastboot flash flash_image format erase wipe recovery reboot shutdown poweroff halt bootctl boot_control lpmake lpflash update_engine_client avbctl dmctl fsck tune2fs");
     private static final Set<String> FILE = set("mkdir touch cp mv rm rmdir rename");
@@ -141,13 +142,24 @@ public final class DeviceShellPolicy {
         args.set(0, name);
         // The child creates its own bearer secret after exec. Keeping the launcher argv
         // free of secrets prevents disclosure through process listings and crash tools.
-        if (args.size() != 7 || !canonicalApkPath(installedApkPath)
+        if (args.size() != 9 || !canonicalApkPath(installedApkPath)
                 || !args.get(1).equals("-Djava.class.path=" + installedApkPath) || !args.get(2).equals("/system/bin")
                 || !args.get(3).equals("com.deepseekharness.app.vscreen.VirtualScreenCore")
                 || !args.get(4).equals("--launch") || !args.get(5).equals("--port")
-                || !args.get(6).matches("8[0-9]{3}"))
+                || !args.get(6).matches("8[0-9]{3}")
+                || !args.get(7).equals("--package") || !PACKAGE.matcher(args.get(8)).matches())
             return deny(com.deepseekharness.app.util.UiText.text("虚拟屏启动参数无法核验"));
         return plan(Kind.VIRTUAL_SCREEN, args, Collections.emptyList());
+    }
+
+    /** 从已核验的虚拟屏启动命令里取出包名；核心进程用它解析自己的 APK。 */
+    public static String virtualScreenPackage(String command) {
+        try {
+            List<String> args = split(command);
+            if (args.size() == 9 && "--package".equals(args.get(7)) && PACKAGE.matcher(args.get(8)).matches())
+                return args.get(8);
+        } catch (IllegalArgumentException ignored) { }
+        return "";
     }
 
     /** Android package-manager path syntax, kept pure so all transports share the same rule. */

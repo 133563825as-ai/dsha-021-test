@@ -4,7 +4,7 @@ DSHA **测试包** 构建仓库：基线是 DSHA `v0.1.7-rc2` 源码，运行时
 
 - 出包方式：GitHub Actions，工作流 [.github/workflows/build.yml](.github/workflows/build.yml)
 - 签名：仓库内 `ci/test-signing.keystore`（**测试签名，不能覆盖安装正式版**）
-- 变体：`standardRelease`（`debuggable=false`、arm64-v8a、`versionCode 181`）
+- 变体：`standardRelease`（`debuggable=false`、arm64-v8a、`versionCode 182`）
 - 离线大资产（`offline-rootfs.bin` / `ubuntu-tools.bin`）不进 git，构建时从官方 `v0.2.0-rc2` APK 中取出并打印 sha256
 
 ## 触发方式

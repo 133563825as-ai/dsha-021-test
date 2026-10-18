@@ -42,6 +42,12 @@
 - **#100**：`VirtualScreenCore` 的 `--launch` 模式在握手成功后没有 `System.exit(0)`。部分 ROM（ColorOS / Android 16）在 `systemMain attach` 之后会留下非守护线程，JVM 不退出，启动命令永远等不到退出码，App 侧只能报 `VSCREEN_START_RESULT_UNKNOWN` —— 这些机型上虚拟屏等于全废。已确认常驻服务是 `launch()` 里 `ProcessBuilder` 拉起的**独立子进程**，父进程退出不影响它，所以补 `System.exit(0)` 是安全的。
 - **#86 / #143**：读屏和虚拟屏树把「反序矩形」（`right < left` 或 `bottom < top`）的节点也算进 200 条配额。这些矩形没有任何一条边能用来定位，报出去就是错坐标，还会把真正有用的控件挤出配额。新增 `AccessibilityDumpBounds`，主屏 dump 和虚拟屏 tree 共用同一条不变量：允许零宽零高，禁止反序。
 
+**第三个虚拟屏故障（真机实测才暴露）**：`VirtualScreenCore` 把包名写死成 `com.dsh.client`，用它反查自己的 APK 路径来比对 `java.class.path`。只要发行包被改名重签（例如 `com.dsh.clienu`），这一步必然抛 `SecurityException("INVALID_CLASSPATH")`，核心进程立刻退出，App 侧拿到的仍是 `VSCREEN_START_RESULT_UNKNOWN`——现象和 #100 一模一样，但根因完全不同。
+
+现在的做法：包名由 App 在启动命令行里用 `--package` 传入（取 `context.getPackageName()`），核心进程只信这个值并用它查 PackageManager；不写死任何包名。同步改了三处校验（Java 的 `DeviceShellPolicy`、容器的 `device-shell-policy.py`、`DeviceShellExecutor` 的 APK 解析），并把设备脚本版本从 19 提到 20，保证覆盖安装后旧策略脚本会被重新注入。
+
+> 注意：`app/build.gradle` 的 `applicationId` 仍然是 `com.dsh.client`。如果你想改包名安装，请整体改 `applicationId` 后重新构建；**不要只改 APK 清单再重签**——那会让 `BuildConfig.APPLICATION_ID` 与实际包名不一致。虚拟屏这一处已经改成运行时取值，但 `adb-pair.py` 的 `pm grant` 仍指向 `com.dsh.client`。
+
 ## 2. 运行时升级
 
 ### 2.1 依赖清单不是「改个版本号」

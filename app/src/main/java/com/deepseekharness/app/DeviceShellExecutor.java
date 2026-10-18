@@ -58,7 +58,8 @@ public final class DeviceShellExecutor {
         if (uid != 0 && uid != 2000)
             return com.deepseekharness.app.util.UiText.text("[POLICY_BLOCKED] 虚拟屏启动仅允许特权设备通道\n[EXIT=126]");
         try {
-            DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspectVirtualScreenLaunch(command, installedDshaApkPath());
+            DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspectVirtualScreenLaunch(
+                    command, installedDshaApkPath(DeviceShellPolicy.virtualScreenPackage(command)));
             if (!plan.allowed()) return plan.reason + "\n[EXIT=126]";
             return runner.run(plan.argv);
         } catch (IOException | IllegalArgumentException error) {
@@ -67,10 +68,11 @@ public final class DeviceShellExecutor {
     }
 
     /** Resolve the installed application source from PackageManager inside the privileged process. */
-    static String installedDshaApkPath() throws IOException {
+    static String installedDshaApkPath(String pkg) throws IOException {
         try {
+            if (pkg == null || pkg.isEmpty()) throw new IOException("DSHA_APK_UNVERIFIED");
             Context system = com.deepseekharness.app.runtime.PrivilegedPackageContext.systemContext();
-            android.content.pm.ApplicationInfo info = system.getPackageManager().getApplicationInfo("com.dsh.client", 0);
+            android.content.pm.ApplicationInfo info = system.getPackageManager().getApplicationInfo(pkg, 0);
             File source = new File(info.sourceDir);
             String canonical = source.getCanonicalPath();
             if (!source.isFile() || !source.getPath().equals(canonical)

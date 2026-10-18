@@ -39,10 +39,14 @@ public final class VirtualScreenCore {
             Context system = com.deepseekharness.app.runtime.PrivilegedPackageContext.systemContext();
             int port = Integer.parseInt(arg(args, "--port", "8998"));
             if (port < 8000 || port > 8999) throw new IllegalArgumentException("INVALID_PORT");
+            // 包名由 App 在启动命令行里传入。发行包可能被改名后重新签名（例如 com.dsh.clienu），
+            // 这里绝不能写死 com.dsh.client，否则 installedDshaApkPath() 永远匹配不上 classpath。
+            String pkg = arg(args, "--package", "");
+            if (!pkg.matches("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+")) throw new IllegalArgumentException("INVALID_PACKAGE");
             String classPath = System.getProperty("java.class.path", "");
-            if (!installedDshaApkPath(system).equals(classPath)) throw new SecurityException("INVALID_CLASSPATH");
+            if (!installedDshaApkPath(system, pkg).equals(classPath)) throw new SecurityException("INVALID_CLASSPATH");
             if (Arrays.asList(args).contains("--launch")) {
-                launch(port);
+                launch(port, pkg);
                 // 握手完成后必须显式结束这个一次性启动父进程：部分 ROM（ColorOS/Android 16）
                 // 会在 systemMain attach 后留下非守护线程，JVM 不退出，启动命令就永远拿不到
                 // [EXIT=0]，App 侧只能报 VSCREEN_START_RESULT_UNKNOWN（#100）。
@@ -83,11 +87,11 @@ public final class VirtualScreenCore {
         }
     }
 
-    private static void launch(int port) throws Exception {
+    private static void launch(int port, String pkg) throws Exception {
         String path = System.getProperty("java.class.path", "");
-        if (!path.equals(installedDshaApkPath())) throw new IllegalArgumentException("INVALID_CLASSPATH");
+        if (!path.equals(installedDshaApkPath(pkg))) throw new IllegalArgumentException("INVALID_CLASSPATH");
         Process child = new ProcessBuilder("/system/bin/app_process", "-Djava.class.path=" + path,
-                "/system/bin", CLASS, "--server", "--port", String.valueOf(port))
+                "/system/bin", CLASS, "--server", "--port", String.valueOf(port), "--package", pkg)
                 .redirectInput(new File("/dev/null")).redirectError(new File("/dev/null")).start();
         boolean started = false;
         try {
@@ -135,12 +139,12 @@ public final class VirtualScreenCore {
         throw new IOException("CORE_BOOTSTRAP_TIMEOUT");
     }
 
-    private static String installedDshaApkPath() throws Exception {
-        return installedDshaApkPath(com.deepseekharness.app.runtime.PrivilegedPackageContext.systemContext());
+    private static String installedDshaApkPath(String pkg) throws Exception {
+        return installedDshaApkPath(com.deepseekharness.app.runtime.PrivilegedPackageContext.systemContext(), pkg);
     }
 
-    private static String installedDshaApkPath(Context system) throws Exception {
-        String source=system.getPackageManager().getApplicationInfo("com.dsh.client",0).sourceDir;
+    private static String installedDshaApkPath(Context system, String pkg) throws Exception {
+        String source=system.getPackageManager().getApplicationInfo(pkg,0).sourceDir;
         String canonical=new File(source).getCanonicalPath();
         if(!source.equals(canonical)||!com.deepseekharness.app.util.DeviceShellPolicy.canonicalApkPath(canonical))
             throw new SecurityException("INVALID_CLASSPATH");

@@ -57,8 +57,11 @@ public final class VirtualScreenManager {
             selected=VirtualScreenChannels.choose(context);
             if(selected==null)return failure("DEVICE_CHANNEL_UNAVAILABLE");
             selectedPort=8800+RANDOM.nextInt(100);port=selectedPort;channel=selected.id();generation="";starting=true;epoch=LIFECYCLE_EPOCH.incrementAndGet();
+            // 包名必须在运行时传入：DSHA 的发行包名可以被重新签名/改名（如 com.dsh.clienu），
+            // 核心进程不能假设自己叫 com.dsh.client，否则 classpath 校验必然失败。
             command="/system/bin/app_process "+ShellQuote.arg("-Djava.class.path="+context.getApplicationInfo().sourceDir)
-                    +" /system/bin com.deepseekharness.app.vscreen.VirtualScreenCore --launch --port "+selectedPort;
+                    +" /system/bin com.deepseekharness.app.vscreen.VirtualScreenCore --launch --port "+selectedPort
+                    +" --package "+ShellQuote.arg(app.getPackageName());
         }
         String coreToken="";
         try{

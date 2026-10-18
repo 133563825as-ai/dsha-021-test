@@ -31,8 +31,9 @@ public final class AdbBridge {
     private static final String[] SCRIPTS = {"adb-pair.py", "adb-shell.py", "adb-setup.sh", "device-shell-policy.py"};
     /** assets 脚本版本：每次改脚本 +1，旧 APK 的残留脚本会因版本不符被强制重注入。
      *  16：原生默认拒绝、现场路径核验与全量应用分组；17：typed VScreen one-shot；
-     *  18：票据改走封闭 stdin 管道，ADB 执行前消费且未知结果不重放。 */
-    private static final String SCRIPT_VERSION = "19";
+     *  18：票据改走封闭 stdin 管道，ADB 执行前消费且未知结果不重放；
+     *  19：设备脚本回归基线；20：虚拟屏启动命令携带运行时包名（发行包可改名重签）。 */
+    private static final String SCRIPT_VERSION = "20";
     private static final Object SETTINGS_LOCK = new Object();
     private static final java.util.concurrent.atomic.AtomicBoolean PAIRING = new java.util.concurrent.atomic.AtomicBoolean();
 
