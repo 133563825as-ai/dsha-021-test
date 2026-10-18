@@ -156,16 +156,18 @@ final class RuntimeTools {
         synchronized (LOCK) { prepareLanSettingsPersistence(rootfs); }
     }
     private static void prepareLanSettingsPersistence(File rootfs) throws IOException {
+        // 0.2.1 起这段逻辑从 dsh-client-ui-settings 搬到了 dsh-client-ui-settings-general，
+        // 而且判断方式从「persistence 取 host/memory」变成「要不要创建 SettingsDocumentStore」。
         File module = new File(rootfs, "usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/"
-                + "@deepseek-ai/dsh-client-ui-settings/lib/client.js");
+                + "@deepseek-ai/dsh-client-ui-settings-general/lib/client.js");
         if (!module.isFile()) throw new IOException("LAN_SETTINGS_MODULE_MISSING");
         if (Compat.isSymbolicLink(module) || !module.getCanonicalPath().startsWith(rootfs.getCanonicalPath() + File.separator))
             throw new IOException("LAN_SETTINGS_MODULE_PATH");
         String source = Compat.readAll(module);
         try {
             String patched = com.deepseekharness.app.util.ExactTextPatch.apply(source,
-                    "const persistence = ctx.remote.$host.isLoopback ? \"host\" : \"memory\";",
-                    "const persistence = \"host\"; // DSHA patch: LAN 代理场景强制 host 持久化");
+                    "const documentController = ctx.remote.$host.isLoopback ? new SettingsDocumentStore(ctx, ctx.configForms.describe()) : void 0;",
+                    "const documentController = new SettingsDocumentStore(ctx, ctx.configForms.describe()); // DSHA patch: LAN 代理场景强制 host 持久化");
             preparedFiles.add(module);
             if (!source.equals(patched)) writeIfChanged(module, patched.getBytes(java.nio.charset.StandardCharsets.UTF_8), false);
         } catch (IllegalArgumentException error) { throw new IOException("LAN_SETTINGS_PATCH_MISMATCH", error); }
