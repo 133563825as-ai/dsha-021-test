@@ -400,12 +400,15 @@ jobs:
             cat "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk.sha256"
             echo '```'
           } > "$note"
-          gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" \
+          # 不要「先删再建」：删除后若创建失败，下载链接就没了。先保证 release 存在，再覆盖上传。
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --title "DSHA 测试包 · dsh 0.2.1-rc.2" --notes-file "$note"
+          fi
+          gh release upload "$TAG" \
             "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk" \
             "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk.sha256" \
-            --title "DSHA 测试包 · dsh 0.2.1-rc.2" \
-            --notes-file "$note"
+            --clobber
+          gh release edit "$TAG" --notes-file "$note"
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
