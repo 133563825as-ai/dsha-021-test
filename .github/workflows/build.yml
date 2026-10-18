@@ -31,7 +31,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write   # 需要为测试包创建 Release 资产（免登录下载）
 
 concurrency:
   group: build-test-apk-${{ github.ref }}
@@ -352,6 +352,60 @@ jobs:
             cat "$RUNNER_TEMP/out/dsh-runtime.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert the APK really carries the upgraded runtime and the vscreen fix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_ASSERT'
+          import io, json, tarfile, zipfile
+          APK = 'app/build/outputs/apk/standard/release/app-standard-release.apk'
+          with zipfile.ZipFile(APK) as apk:
+              names = set(apk.namelist())
+              # 1) 虚拟屏插件清单：必须是真实的 insert 行，而不是空数组
+              manifest = apk.read('assets/builtin-plugins/dsh-tool-vscreen/cordis.patch.yml').decode('utf-8')
+              if manifest.strip() in ('', '[]') or 'dsh-tool-vscreen' not in manifest:
+                  raise SystemExit('虚拟屏插件清单仍为空，插件不会装载')
+              print('PASS 虚拟屏插件清单已包含 insert 行：', ' '.join(manifest.split()))
+              # 2) 运行时版本标记：dsh-runtime.bin 是 gzip tar，里面带版本文件
+              raw = apk.read('assets/dsh-runtime.bin')
+              with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as runtime:
+                  version = runtime.extractfile('usr/local/share/dsha/dsh-runtime.version').read().decode().strip()
+              if version != '0.2.1-rc.2':
+                  raise SystemExit(f'APK 内的 dsh 运行时版本是 {version}，不是 0.2.1-rc.2')
+              print('PASS APK 内运行时版本 =', version)
+              # 3) 顺带确认加密资产没有被 aapt 解压（rootfs 必须保持 STORED）
+              info = apk.getinfo('assets/offline-rootfs.bin')
+              print(f'offline-rootfs.bin 存储方式：{"STORED" if info.compress_type == 0 else "DEFLATED"}  {info.file_size} bytes')
+          PY_ASSERT
+
+      - name: Publish the APK as a release asset (no login needed to download)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: test-0.2.1-rc2
+        run: |
+          set -euo pipefail
+          apk=$(ls app/build/outputs/apk/standard/release/*.apk | head -1)
+          cp "$apk" "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk"
+          ( cd "$RUNNER_TEMP" && sha256sum dsha-0.2.1-rc2-test.apk > dsha-0.2.1-rc2-test.apk.sha256 )
+          note="$RUNNER_TEMP/RELEASE-NOTES.md"
+          {
+            echo 'DSHA 测试包：DSH 运行时 0.2.1-rc.2（基于 v0.1.7-rc2 源码适配）'
+            echo
+            echo '- 应用名：DSHA 测试包；包名 com.dsh.client；versionCode 181'
+            echo '- 签名：仓库内测试证书（**不能覆盖安装正式版**，需先卸载或用另一台设备）'
+            echo '- 运行方式可在「设置 → 配置 → 运行方式」里切 proroot / proot'
+            echo '- 虚拟屏：补齐 dsh-tool-vscreen 的 cordis.patch.yml（此前为空，插件从未装载）'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk.sha256"
+            echo '```'
+          } > "$note"
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk" \
+            "$RUNNER_TEMP/dsha-0.2.1-rc2-test.apk.sha256" \
+            --title "DSHA 测试包 · dsh 0.2.1-rc.2" \
+            --notes-file "$note"
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
