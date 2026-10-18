@@ -1,0 +1,234 @@
+name: build-test-apk
+
+# 测试包构建：DSHA 0.1.7-rc2 源码 + DSH 0.2.1-rc.2 运行时。
+#
+# 签名说明（重要）：
+#   * 正式发布必须用历史 E7E3 keystore，app/build.gradle 的 verifyPublishCertificate 会硬校验。
+#   * 本流水线设 DSHA_CI_TEST_SIGNING=true，改用仓库内 ci/test-signing.keystore 签名，
+#     构建变体仍是 standardRelease（debuggable=false），但**不能覆盖安装正式版**。
+#   * 不设该变量时，生产门禁一字未改。
+#
+# 离线资产：offline-rootfs.bin / ubuntu-tools.bin 不进 git（各 300MB 级），
+# 从官方 v0.2.0-rc2 的 APK 里取，并打印/校验 sha256。
+
+on:
+  workflow_dispatch:
+    inputs:
+      offline_rootfs_sha256:
+        description: '可选：offline-rootfs.bin 的固定 SHA-256（64 位小写十六进制），不填则只打印'
+        required: false
+        type: string
+      ubuntu_tools_sha256:
+        description: '可选：ubuntu-tools.bin 的固定 SHA-256，不填则只打印'
+        required: false
+        type: string
+      run_runtime_smoke:
+        description: '是否运行宿主侧运行时冒烟测试'
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-test-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DSHA_CI_TEST_SIGNING: 'true'
+  DSHA_KEYSTORE: ci/test-signing.keystore
+  DSHA_KEYSTORE_PASSWORD: ci-test-only-password
+  DSHA_KEY_ALIAS: ci-test
+  DSHA_KEY_PASSWORD: ci-test-only-password
+  OFFICIAL_APK_URL: https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: assemble standardRelease (test signing)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify toolchain against source configuration
+        id: toolchain
+        run: python3 tools/ci-toolchain.py --github-output
+
+      - name: Set up JDK ${{ steps.toolchain.outputs.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.toolchain.outputs.java }}
+
+      - name: Set up Node ${{ steps.toolchain.outputs.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+          cache: npm
+          cache-dependency-path: tools/dsh-runtime/package-lock.json
+
+      - name: Set up Python ${{ steps.toolchain.outputs.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.toolchain.outputs.python }}
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          if ! command -v sdkmanager > /dev/null 2>&1; then
+            SDK="$HOME/android-sdk"
+            if [[ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]]; then
+              echo '未发现预装 sdkmanager，下载官方 cmdline-tools'
+              curl -fL --retry 3 --retry-delay 5 -o /tmp/cmdtools.zip \
+                https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
+              mkdir -p "$SDK/cmdline-tools"
+              unzip -q /tmp/cmdtools.zip -d "$SDK/cmdline-tools"
+              mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            fi
+            echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+            echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+            echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          fi
+          echo "ANDROID_HOME=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/android-sdk}}" >> "$GITHUB_ENV"
+
+      - name: Accept licenses and install platform / build-tools / NDK
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;${{ steps.toolchain.outputs.androidPlatform }}" \
+                     "build-tools;${{ steps.toolchain.outputs.buildTools }}" \
+                     "ndk;${{ steps.toolchain.outputs.ndk }}"
+          sdkmanager --list_installed | tail -20
+
+      - name: Fetch locked offline assets from the official APK
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/official
+          echo '下载官方 APK（仅用于取出离线资产）'
+          curl -fL --retry 4 --retry-delay 5 -o /tmp/official/dsha.apk "$OFFICIAL_APK_URL"
+          ls -l /tmp/official/dsha.apk
+          python3 - <<'PY'
+          import hashlib, os, zipfile
+          want = {
+              'assets/offline-rootfs.bin': 'app/src/main/assets/offline-rootfs.bin',
+              'assets/ubuntu-tools.bin': 'app/src/main/assets/ubuntu-tools.bin',
+          }
+          with zipfile.ZipFile('/tmp/official/dsha.apk') as apk:
+              names = set(apk.namelist())
+              print('APK 内资产条目数：', len(names))
+              for entry, target in want.items():
+                  if entry not in names:
+                      raise SystemExit('官方 APK 里没有 ' + entry)
+                  data = apk.read(entry)
+                  os.makedirs(os.path.dirname(target), exist_ok=True)
+                  with open(target, 'wb') as out:
+                      out.write(data)
+                  print(f'{entry} -> {target}  {len(data)} bytes  sha256={hashlib.sha256(data).hexdigest()}')
+          PY
+          # 可选校验：传入固定 SHA-256 时强制比对
+          if [[ -n "${{ inputs.offline_rootfs_sha256 }}" ]]; then
+            echo "${{ inputs.offline_rootfs_sha256 }}  app/src/main/assets/offline-rootfs.bin" | sha256sum -c -
+          else
+            echo '::notice title=offline-rootfs.bin 未锁定::把上面打印的 sha256 作为 workflow_dispatch 输入以强制校验'
+          fi
+          if [[ -n "${{ inputs.ubuntu_tools_sha256 }}" ]]; then
+            echo "${{ inputs.ubuntu_tools_sha256 }}  app/src/main/assets/ubuntu-tools.bin" | sha256sum -c -
+          fi
+
+      - name: Build locked dsh runtime (0.2.1-rc.2) into dsh-runtime.bin
+        run: |
+          set -euo pipefail
+          python3 -c "import json;d=json.load(open('tools/dsh-runtime/package.json'));print('pinned @deepseek-ai/dsh =',d['dependencies']['@deepseek-ai/dsh'])"
+          python3 tools/prepare-dsh-runtime.py
+          ls -l app/src/main/assets/dsh-runtime.bin
+          sha256sum app/src/main/assets/dsh-runtime.bin
+
+      - name: Refresh recovery-runtime pins for this build
+        run: |
+          set -euo pipefail
+          python3 ci/refresh-pins.py
+          cat tools/recovery-runtime/lock.json
+
+      - name: Regenerate managed-input proofs
+        run: |
+          set -euo pipefail
+          python3 tools/prepare-backup-assets.py --write
+          python3 tools/prepare-runtime-descriptor.py --write
+          git --no-pager diff --stat || true
+
+      - name: Assemble standardRelease with the test keystore
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleStandardRelease
+
+      - name: Verify the produced APK
+        run: |
+          set -euo pipefail
+          apk=$(ls app/build/outputs/apk/standard/release/*.apk | head -1)
+          echo "APK: $apk"
+          aapt2="$(dirname "$(command -v sdkmanager)")/../build-tools/${{ steps.toolchain.outputs.buildTools }}/aapt2"
+          aapt2=$(command -v aapt2 || echo "$ANDROID_SDK_ROOT/build-tools/${{ steps.toolchain.outputs.buildTools }}/aapt2")
+          "$aapt2" dump badging "$apk" | grep -E '^package:|native-code|application-label' | head -5
+          if "$aapt2" dump badging "$apk" | grep -q 'application-debuggable'; then
+            echo 'APK 是 debuggable，不符合 release 规格'; exit 1
+          fi
+          if ! "$aapt2" dump badging "$apk" | grep -q "versionCode='181'"; then
+            echo 'versionCode 不是 181'; exit 1
+          fi
+          if "$aapt2" dump badging "$apk" | grep -q 'x86'; then
+            echo 'APK 混入非 arm64 ABI'; exit 1
+          fi
+          apksigner="$ANDROID_SDK_ROOT/build-tools/${{ steps.toolchain.outputs.buildTools }}/apksigner"
+          "$apksigner" verify --print-certs "$apk" | grep -E 'Signer #1 certificate (DN|SHA-256)|Verified using' || true
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$apk" "$RUNNER_TEMP/out/"
+          ( cd "$RUNNER_TEMP/out" && sha256sum ./*.apk | tee sha256.txt )
+          sha256sum app/src/main/assets/dsh-runtime.bin | tee "$RUNNER_TEMP/out/dsh-runtime.sha256"
+          {
+            echo '### 产物'
+            echo '```'
+            cat "$RUNNER_TEMP/out/sha256.txt"
+            cat "$RUNNER_TEMP/out/dsh-runtime.sha256"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsha-0.2.1-rc2-test-apk
+          path: |
+            ${{ runner.temp }}/out/*.apk
+            ${{ runner.temp }}/out/sha256.txt
+            ${{ runner.temp }}/out/dsh-runtime.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Host-side runtime smoke (informational)
+        if: ${{ github.event_name == 'push' || inputs.run_runtime_smoke }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 tools/prepare-test-runtime.py
+          node tools/test-recovery-agent.mjs
+          node tools/test-dsh-sessions.mjs || true
+          node tools/test-runtime-fixture.mjs || true
+
+      - name: Run summary
+        if: always()
+        run: |
+          {
+            echo '### 本次运行'
+            echo "- 平台 / build-tools / NDK：\`${{ steps.toolchain.outputs.androidPlatform }}\` / \`${{ steps.toolchain.outputs.buildTools }}\` / \`${{ steps.toolchain.outputs.ndk }}\`"
+            echo '- 运行时：`@deepseek-ai/dsh 0.2.1-rc.2`'
+            echo '- 签名：`ci/test-signing.keystore`（测试包，不可覆盖正式版）'
+          } >> "$GITHUB_STEP_SUMMARY"

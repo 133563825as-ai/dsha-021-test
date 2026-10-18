@@ -1,1 +1,5 @@
-[]
+# 之前这里是 []，Loader 里没有对应行，插件从未被装载，android_vscreen_* 工具全部不存在。
+# 与 dsh-device-shell-guide 同写法。
+- insert:
+    - id: dsh-tool-vscreen
+      name: dsh-tool-vscreen

@@ -15,8 +15,8 @@ android {
         applicationId "com.dsh.client"
         minSdk 30
         targetSdk 37
-        versionCode 147
-        versionName "0.1.7-rc2"
+        versionCode 181
+        versionName "0.2.1-rc2-dsh0.2.1-rc.2-test"
         testInstrumentationRunner project.findProperty('dsha.testRunner') ?: "com.deepseekharness.app.Rc13Instrumentation"
         ndk {
             abiFilters 'arm64-v8a'
@@ -112,11 +112,22 @@ android {
     }
 }
 
+// 仅测试包：CI 用测试 keystore 出包时跳过发布证书指纹校验。
+// 默认 false，正式发布路径的 E7E3 强校验一字未改。
+def ciTestSigning = (System.getenv("DSHA_CI_TEST_SIGNING")
+        ?: project.findProperty("dsha.ci.testSigning") ?: "false").toString() == "true"
+
 def verifyPublishCertificate = tasks.register("verifyPublishCertificate") {
     doLast {
         def signing = android.signingConfigs.publish
         if (signing.storeFile == null || !signing.storeFile.isFile())
             throw new GradleException("正式 APK 缺少历史 E7E3 发布密钥，停止打包")
+        if (ciTestSigning) {
+            println "========== TEST PACKAGE =========="
+            println "使用测试 keystore 签名，跳过 E7E3 指纹校验；不可覆盖安装正式版"
+            println "=================================="
+            return
+        }
         def store = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
         signing.storeFile.withInputStream { store.load(it, signing.storePassword.toCharArray()) }
         def certificate = store.getCertificate(signing.keyAlias)

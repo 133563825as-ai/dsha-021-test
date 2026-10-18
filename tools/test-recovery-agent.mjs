@@ -15,7 +15,8 @@ const { default: SystemPrompt } = await load('@deepseek-ai/dsh-system-prompt');
 const { default: ToolRuntime, defineTool } = await load('@deepseek-ai/dsh-tools');
 const { composeEntries, loadOverlayPatches } = await load('@deepseek-ai/dsh-app-boot');
 const actual = JSON.parse(await readFile(path.join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'));
-assert.equal(actual.version, '0.1.7-rc.2', 'must run the pinned emergency ABI');
+const pinned = JSON.parse(await readFile(path.join(path.resolve(import.meta.dirname, '..'), 'tools/dsh-runtime/package.json'), 'utf8')).dependencies['@deepseek-ai/dsh'];
+assert.equal(actual.version, pinned, 'must run the pinned emergency ABI');
 const source = (await readFile(path.join(root, 'app/src/main/assets/recovery-agent.js'), 'utf8'))
   .replace("'@deepseek-ai/dsh-tools'", JSON.stringify(pathToFileURL(requireRuntime.resolve('@deepseek-ai/dsh-tools')).href)) + '\n//# sourceURL=recovery-agent-test.js';
 const recovery = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);

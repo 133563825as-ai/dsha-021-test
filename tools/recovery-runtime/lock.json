@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "dshVersion": "0.1.7-rc.2",
+  "dshVersion": "0.2.1-rc.2",
   "baseVersion": "10",
   "archives": [
     {
