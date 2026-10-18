@@ -78,7 +78,7 @@ async function migrate(settings, parse, aliases, options = {}) {
   let result;
   try { result = await read(ledgerFile); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (result && (result.generation !== current.generation || result.sourceSha256 !== source.sha256)) throw new Error('DSHA_MIGRATION_RESULT_IDENTITY');
-  result ||= { version: 2, generation: current.generation, sourceSha256: source.sha256, targetVersion: '0.1.7-rc.2', sections: {} };
+  result ||= { version: 2, generation: current.generation, sourceSha256: source.sha256, targetVersion: '0.2.1-rc.2', sections: {} };
   result.startupId = current.startupId;
   for (const [name, values] of Object.entries(sections)) {
     const ns = Object.hasOwn(aliases, name) ? aliases[name] : name;
