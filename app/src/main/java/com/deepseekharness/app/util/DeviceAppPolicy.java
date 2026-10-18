@@ -28,6 +28,10 @@ public final class DeviceAppPolicy {
         private void add(String output, boolean system) {
             for (String line : output.split("\\r?\\n")) {
                 if (line.trim().isEmpty()) continue;
+                // 多用户设备上 pm 会把「无权访问 user N」的提示混进包列表（issue #115，实测在首行）：
+                // 这一行既不是包，也不代表没有权限——忽略它，不能因此整体拒绝结束应用。
+                // 只放过 pm 自己的 Error 噪声；其它不认识的行仍然按格式错误处理，避免清单被截断时误判。
+                if (line.trim().startsWith("Error:")) continue;
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile("^package:([A-Za-z0-9_.]+) uid:([0-9]+(?:,[0-9]+)*)$").matcher(line.trim());
                 if (!m.matches() || !m.group(1).matches("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*")) throw new IllegalArgumentException(com.deepseekharness.app.util.UiText.text("应用清单格式无法确认"));
                 Set<Integer> uids = new LinkedHashSet<>();

@@ -153,18 +153,28 @@ jobs:
           ls -l app/src/main/assets/dsh-runtime.bin
           sha256sum app/src/main/assets/dsh-runtime.bin
 
-      - name: Refresh recovery-runtime pins for this build
-        run: |
-          set -euo pipefail
-          python3 ci/refresh-pins.py
-          cat tools/recovery-runtime/lock.json
-
       - name: Regenerate managed-input proofs
         run: |
           set -euo pipefail
           python3 tools/prepare-backup-assets.py --write
           python3 tools/prepare-runtime-descriptor.py --write
           git --no-pager diff --stat || true
+
+      - name: Generate standard assets (prunes rootfs, embeds the new runtime)
+        # 顺序不能换：应急运行时锁校验的是**裁剪后**的 offline-rootfs.bin，
+        # 而它要等 prepareStandardAssets 把新 dsh-runtime.bin 内嵌进去才存在。
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:prepareStandardAssets
+          ls -l app/build/generated/standardAssets/offline-rootfs.bin \
+                app/build/generated/standardAssets/dsh-runtime.bin
+          sha256sum app/build/generated/standardAssets/offline-rootfs.bin
+
+      - name: Refresh recovery-runtime pins for this build
+        run: |
+          set -euo pipefail
+          python3 ci/refresh-pins.py
+          cat tools/recovery-runtime/lock.json
 
       - name: Assemble standardRelease with the test keystore
         run: |

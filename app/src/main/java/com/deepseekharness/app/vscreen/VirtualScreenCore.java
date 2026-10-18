@@ -41,7 +41,15 @@ public final class VirtualScreenCore {
             if (port < 8000 || port > 8999) throw new IllegalArgumentException("INVALID_PORT");
             String classPath = System.getProperty("java.class.path", "");
             if (!installedDshaApkPath(system).equals(classPath)) throw new SecurityException("INVALID_CLASSPATH");
-            if (Arrays.asList(args).contains("--launch")) { launch(port); return; }
+            if (Arrays.asList(args).contains("--launch")) {
+                launch(port);
+                // 握手完成后必须显式结束这个一次性启动父进程：部分 ROM（ColorOS/Android 16）
+                // 会在 systemMain attach 后留下非守护线程，JVM 不退出，启动命令就永远拿不到
+                // [EXIT=0]，App 侧只能报 VSCREEN_START_RESULT_UNKNOWN（#100）。
+                // 常驻服务由 launch() 拉起的子进程承担，父进程退出不影响它。
+                System.exit(0);
+                return;
+            }
             if (!Arrays.asList(args).contains("--server")) throw new IllegalArgumentException("SERVER_MODE_REQUIRED");
             if (android.os.Build.VERSION.SDK_INT < 30) throw new UnsupportedOperationException("API_30_REQUIRED");
             token = randomToken();

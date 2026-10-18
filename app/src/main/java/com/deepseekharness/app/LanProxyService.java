@@ -428,7 +428,30 @@ public final class LanProxyService {
             if(!run.dispatch.request(owner,()->read(until)))owner.close();
         }
         void fail(int status){
-            try{writePlain(out,"HTTP/1.1 "+status+" Request Failed","Request could not be processed");}catch(IOException ignored){}finally{owner.close();}
+            try{writePlain(out,"HTTP/1.1 "+status+" Request Failed",failureMessage(status));}catch(IOException ignored){}finally{owner.close();}
+        }
+        /** 局域网失败态必须能自救：401 是凭据失效（去启动页重新复制链接）、
+         *  503 是后端还没认证好（等 dsh 起来再刷新）、408 是读取超时（重试）。
+         *  以前四种状态共用「Request could not be processed」，用户既不知道要不要换链接，
+         *  也不知道该等还是该重试（issue #98）。正文里不回显请求、地址或凭据。 */
+        private static String failureMessage(int status){
+            switch(status){
+                case 400:return com.deepseekharness.app.util.UiText.choose(
+                        "请求格式无效或超出限制。请用 DSHA 启动页复制的完整连接链接重试。",
+                        "The request is invalid or exceeds a limit. Retry with the complete link copied from the DSHA Launch page.");
+                case 401:return com.deepseekharness.app.util.UiText.choose(
+                        "局域网访问凭据已失效或不匹配。请回到 DSHA 启动页重新复制连接链接；DSH 重启或关闭局域网访问后旧链接会失效。",
+                        "The LAN credential is missing, expired or does not match. Copy a fresh link from the DSHA Launch page; restarting DSH or turning LAN access off invalidates old links.");
+                case 408:return com.deepseekharness.app.util.UiText.choose(
+                        "读取请求超时。请检查网络后重试。",
+                        "The request timed out. Check the network and retry.");
+                case 503:return com.deepseekharness.app.util.UiText.choose(
+                        "局域网代理暂时不可用（可能正在等待 DSH 认证或繁忙）。请回到 DSHA 确认 DSH 已启动后刷新此页；这不表示链接失效。",
+                        "The LAN proxy is temporarily unavailable (waiting for DSH authentication or busy). Confirm DSH is running in DSHA, then refresh. This does not mean the link expired.");
+                default:return com.deepseekharness.app.util.UiText.choose(
+                        "局域网请求处理失败。",
+                        "The LAN request could not be processed.");
+            }
         }
         void read(long until){
             try{

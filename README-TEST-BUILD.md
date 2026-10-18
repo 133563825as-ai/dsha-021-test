@@ -23,5 +23,6 @@ Actions → `build-test-apk` → Run workflow。首次运行后，把日志里�
 | 虚拟屏 | `dsh-tool-vscreen/cordis.patch.yml` 原为 `[]`，插件从未装载；已补齐 insert 行 |
 | 应急运行时 | `tools/recovery-runtime/lock.json` 升级到 0.2.1，哈希由 `ci/refresh-pins.py` 在构建时刷新 |
 | UI | 保持内置 dsh-web-mobile 3.0.3，仅对齐 peer 元数据 |
+| 缺陷修复 | #100 虚拟屏 `--launch` 父进程不退出（恒报 START_RESULT_UNKNOWN）；#86/#143 无障碍树先吃配额的反序矩形；#108 导出 MIME 误判导致 `xxx.mp4.gz`；#115 多用户设备 pm 噪声导致「结束应用」全拒；#98 局域网失败态文案不可自救 |
 
 详细说明见构建产物旁的 `TEST-BUILD-NOTES.md`（在源仓库里）。

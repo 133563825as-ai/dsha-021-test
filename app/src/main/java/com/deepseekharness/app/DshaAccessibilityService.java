@@ -298,10 +298,13 @@ public class DshaAccessibilityService extends AccessibilityService {
         boolean editable = node.isEditable();
         String label = !TextUtils.isEmpty(t) ? t.toString()
                 : (!TextUtils.isEmpty(d) ? d.toString() : "");
-        // 只输出「有文字」或「能点/能输入」的节点：全量节点树对 agent 是噪音
-        if (!label.isEmpty() || clickable || editable) {
-            android.graphics.Rect r = new android.graphics.Rect();
-            node.getBoundsInScreen(r);
+        android.graphics.Rect r = new android.graphics.Rect();
+        node.getBoundsInScreen(r);
+        // 只输出「有文字」或「能点/能输入」、且矩形能用来定位的节点：全量节点树对 agent 是噪音；
+        // 反序矩形（right<left / bottom<top）既不可见也点不到，却先吃掉 200 条配额，
+        // 把后面真正有用的控件挤掉（issue #86）。配额只在真的要输出时才加。
+        if (com.deepseekharness.app.util.AccessibilityDumpBounds.reportable(
+                !label.isEmpty(), clickable || editable, r.left, r.top, r.right, r.bottom)) {
             count[0]++;
             sb.append('[').append(count[0]).append("] ");
             if (!label.isEmpty()) sb.append('"').append(label.replace('\n', ' ')).append('"');

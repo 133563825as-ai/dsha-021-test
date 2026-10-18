@@ -69,8 +69,14 @@ public final class VirtualScreenAccessibility {
     private static void walk(AccessibilityNodeInfo node,JSONArray tree,int depth)throws JSONException {
         if(depth>24||tree.length()>=200)return;
         String text=node.isPassword()?"":String.valueOf(node.getText()==null?"":node.getText());
-        if(!text.isEmpty()||node.isClickable()||node.isEditable()||node.isScrollable()){
-            String id=UUID.randomUUID().toString();nodes.put(id,AccessibilityNodeInfo.obtain(node));Rect rect=new Rect();node.getBoundsInScreen(rect);
+        Rect rect=new Rect();node.getBoundsInScreen(rect);
+        // 与主屏 dump 同一条不变量：反序矩形不是「空节点」，它四条边没有一条能用来定位，
+        // 报出去只会让调用方按一个错坐标点屏幕（issue #143）。
+        if(com.deepseekharness.app.util.AccessibilityDumpBounds.reportable(
+                !text.isEmpty()||!String.valueOf(node.getContentDescription()==null?"":node.getContentDescription()).isEmpty(),
+                node.isClickable()||node.isEditable()||node.isScrollable(),
+                rect.left,rect.top,rect.right,rect.bottom)){
+            String id=UUID.randomUUID().toString();nodes.put(id,AccessibilityNodeInfo.obtain(node));
             tree.put(new JSONObject().put("nodeId",id).put("text",text.substring(0,Math.min(text.length(),1000))).put("description",node.isPassword()?"":String.valueOf(node.getContentDescription()==null?"":node.getContentDescription())).put("clickable",node.isClickable()).put("editable",node.isEditable()).put("scrollable",node.isScrollable()).put("bounds",new JSONArray(new int[]{rect.left,rect.top,rect.right,rect.bottom})));
         }
         for(int i=0;i<node.getChildCount()&&tree.length()<200;i++){AccessibilityNodeInfo child=node.getChild(i);if(child!=null)try{walk(child,tree,depth+1);}finally{child.recycle();}}

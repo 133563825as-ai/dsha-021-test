@@ -35,11 +35,44 @@ public final class DownloadsExport {
         if (Build.VERSION.SDK_INT >= 29) return media(context, source, name, expected);
         return direct(source, name, expected);
     }
+    /** 导出落盘用的 MIME 必须按真实扩展名给。
+     *
+     *  <p>以前只区分 .txt / .zip，其余一律 {@code application/gzip}。MediaStore 会按 MIME
+     *  给文件补一个「应有」的后缀，于是 {@code xxx.mp4} 落盘成 {@code xxx.mp4.gz}：字节没变，
+     *  名字和类型全错 —— 相册不索引、播放器打不开，用户只能手动改名（issue #108）。
+     *  这里与上游 {@code BackupFileNames.exportMimeType} 保持同一张表。 */
+    static String exportMimeType(String name) {
+        String lower = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".gz")) return "application/gzip";
+        if (lower.endsWith(".txt")) return "text/plain";
+        if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".md")) return "text/markdown";
+        if (lower.endsWith(".log")) return "text/plain";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".flac")) return "audio/flac";
+        if (lower.endsWith(".zip")) return "application/zip";
+        if (lower.endsWith(".tar")) return "application/x-tar";
+        // 未知类型一律 octet-stream：不清楚就不许 MediaStore 猜后缀。
+        return "application/octet-stream";
+    }
+
     @android.annotation.TargetApi(29)
     private static Result media(Context context, File source, String name, FileIntegrity.Result expected) throws Exception {
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-        values.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".txt") ? "text/plain" : name.endsWith(".zip") ? "application/zip" : "application/gzip");
+        values.put(MediaStore.MediaColumns.MIME_TYPE, exportMimeType(name));
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DSHA/");
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
         Uri uri = context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);

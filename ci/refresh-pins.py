@@ -24,18 +24,13 @@ def sha256(path):
 
 
 def main():
-    seeds = {
-        'recovery-rootfs.bin': ROOT / 'app/build/generated/standardAssets/offline-rootfs.bin',
-        'recovery-dsh-runtime.bin': ROOT / 'app/src/main/assets/dsh-runtime.bin',
-    }
     lock = json.loads(LOCK.read_text(encoding='utf-8'))
     changed = []
     for row in lock['archives']:
-        seed = seeds.get(row['asset'])
-        if seed is None:
-            sys.exit('未知的应急归档资产: ' + row['asset'])
+        # 锁里自己声明了种子路径：优先用它，避免构建脚本改了目录结构后这里悄悄算错。
+        seed = ROOT / row['seed']
         if not seed.is_file():
-            sys.exit('缺少应急归档的种子文件: ' + str(seed))
+            sys.exit('缺少应急归档的种子文件（先跑 :app:prepareStandardAssets）: ' + str(seed))
         actual = sha256(seed)
         if row['sha256'] != actual:
             changed.append((row['asset'], row['sha256'], actual))
