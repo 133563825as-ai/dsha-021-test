@@ -142,9 +142,15 @@ jobs:
           ls -l /tmp/official/dsha.apk
           python3 - <<'PY'
           import hashlib, os, zipfile
+          # 这三份是 prepare-standard-assets.py 的硬输入：
+          #   offline-rootfs.bin      —— 离线 rootfs
+          #   ubuntu-tools.bin        —— 离线基础工具
+          #   ubuntu-tools.inputs.json —— 它的依赖锁（含绑定 rootfs 的 dpkg 状态哈希）
+          # 三者由官方包一起产出，必须同源取出；单独重新下载 deb 会与 rootfs 对不上。
           want = {
               'assets/offline-rootfs.bin': 'app/src/main/assets/offline-rootfs.bin',
               'assets/ubuntu-tools.bin': 'app/src/main/assets/ubuntu-tools.bin',
+              'assets/ubuntu-tools.inputs.json': 'app/src/main/assets/ubuntu-tools.inputs.json',
           }
           with zipfile.ZipFile('/tmp/official/dsha.apk') as apk:
               names = set(apk.namelist())
