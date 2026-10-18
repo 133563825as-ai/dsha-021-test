@@ -39,11 +39,18 @@ concurrency:
 
 env:
   DSHA_CI_TEST_SIGNING: 'true'
-  DSHA_KEYSTORE: ci/test-signing.keystore
+  # 必须绝对路径：app/build.gradle 用 file(ksPath)，相对路径会按 app/ 解析成 app/ci/...，
+  # storeFile 变 null，verifyPublishCertificate 会在 DSHA_CI_TEST_SIGNING 判断之前就抛"缺少发布密钥"。
+  DSHA_KEYSTORE: ${{ github.workspace }}/ci/test-signing.keystore
   DSHA_KEYSTORE_PASSWORD: ci-test-only-password
   DSHA_KEY_ALIAS: ci-test
   DSHA_KEY_PASSWORD: ci-test-only-password
   OFFICIAL_APK_URL: https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk
+  # 仓库内测试证书的 SHA-256（小写十六进制）；签完必须与实测一致
+  CI_TEST_CERT_SHA256: d97170a287714b9e93ec96b04cdd07cbee4f42e7a2d9934acaf2affceb72dd12
+  EXPECTED_PACKAGE: com.dsh.client
+  EXPECTED_VERSION_CODE: '181'
+  EXPECTED_ABI: arm64-v8a
 
 defaults:
   run:
@@ -53,7 +60,7 @@ jobs:
   build:
     name: assemble standardRelease (test signing)
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,21 +92,34 @@ jobs:
       - name: Install Android SDK components
         run: |
           set -euo pipefail
-          if ! command -v sdkmanager > /dev/null 2>&1; then
-            SDK="$HOME/android-sdk"
-            if [[ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]]; then
-              echo '未发现预装 sdkmanager，下载官方 cmdline-tools'
-              curl -fL --retry 3 --retry-delay 5 -o /tmp/cmdtools.zip \
-                https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
-              mkdir -p "$SDK/cmdline-tools"
-              unzip -q /tmp/cmdtools.zip -d "$SDK/cmdline-tools"
-              mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
-            fi
-            echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-            echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-            echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          # 实测 ubuntu-24.04 镜像：SDK 预装在 /usr/local/lib/android/sdk，但 sdkmanager 不在 PATH，
+          # 且 ANDROID_SDK_ROOT/ANDROID_HOME 都未导出。所以先找预装，找不到才自己拉 cmdline-tools。
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "$sdk_root" ]]; then
+            for candidate in /usr/local/lib/android/sdk "$HOME/android-sdk"; do
+              if [[ -x "$candidate/cmdline-tools/latest/bin/sdkmanager" ]]; then
+                sdk_root="$candidate"
+                break
+              fi
+            done
           fi
-          echo "ANDROID_HOME=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/android-sdk}}" >> "$GITHUB_ENV"
+          if [[ -z "$sdk_root" ]]; then
+            sdk_root="$HOME/android-sdk"
+            echo '未发现可用 SDK，下载官方 cmdline-tools'
+            curl -fL --retry 3 --retry-delay 5 -o /tmp/cmdtools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
+            mkdir -p "$sdk_root/cmdline-tools"
+            unzip -q /tmp/cmdtools.zip -d "$sdk_root/cmdline-tools"
+            mv "$sdk_root/cmdline-tools/cmdline-tools" "$sdk_root/cmdline-tools/latest"
+          fi
+          # 先把 sdk_root 写进当前 shell，才能立刻用它下面的 sdkmanager 验活
+          export ANDROID_SDK_ROOT="$sdk_root" ANDROID_HOME="$sdk_root"
+          export PATH="$sdk_root/cmdline-tools/latest/bin:$sdk_root/platform-tools:$PATH"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          { echo "$sdk_root/cmdline-tools/latest/bin"; echo "$sdk_root/platform-tools"; } >> "$GITHUB_PATH"
+          echo "SDK 根目录：$sdk_root"
+          sdkmanager --version
 
       - name: Accept licenses and install platform / build-tools / NDK
         run: |
@@ -111,6 +131,9 @@ jobs:
           sdkmanager --list_installed | tail -20
 
       - name: Fetch locked offline assets from the official APK
+        env:
+          ROOTFS_SHA: ${{ inputs.offline_rootfs_sha256 }}
+          UBUNTU_TOOLS_SHA: ${{ inputs.ubuntu_tools_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/official
@@ -136,13 +159,13 @@ jobs:
                   print(f'{entry} -> {target}  {len(data)} bytes  sha256={hashlib.sha256(data).hexdigest()}')
           PY
           # 可选校验：传入固定 SHA-256 时强制比对
-          if [[ -n "${{ inputs.offline_rootfs_sha256 }}" ]]; then
-            echo "${{ inputs.offline_rootfs_sha256 }}  app/src/main/assets/offline-rootfs.bin" | sha256sum -c -
+          if [[ -n "${ROOTFS_SHA:-}" ]]; then
+            echo "${ROOTFS_SHA}  app/src/main/assets/offline-rootfs.bin" | sha256sum -c -
           else
             echo '::notice title=offline-rootfs.bin 未锁定::把上面打印的 sha256 作为 workflow_dispatch 输入以强制校验'
           fi
-          if [[ -n "${{ inputs.ubuntu_tools_sha256 }}" ]]; then
-            echo "${{ inputs.ubuntu_tools_sha256 }}  app/src/main/assets/ubuntu-tools.bin" | sha256sum -c -
+          if [[ -n "${UBUNTU_TOOLS_SHA:-}" ]]; then
+            echo "${UBUNTU_TOOLS_SHA}  app/src/main/assets/ubuntu-tools.bin" | sha256sum -c -
           fi
 
       - name: Build locked dsh runtime (0.2.1-rc.2) into dsh-runtime.bin
@@ -174,22 +197,49 @@ jobs:
       - name: Verify the produced APK
         run: |
           set -euo pipefail
-          apk=$(ls app/build/outputs/apk/standard/release/*.apk | head -1)
-          echo "APK: $apk"
-          aapt2="$(dirname "$(command -v sdkmanager)")/../build-tools/${{ steps.toolchain.outputs.buildTools }}/aapt2"
-          aapt2=$(command -v aapt2 || echo "$ANDROID_SDK_ROOT/build-tools/${{ steps.toolchain.outputs.buildTools }}/aapt2")
-          "$aapt2" dump badging "$apk" | grep -E '^package:|native-code|application-label' | head -5
-          if "$aapt2" dump badging "$apk" | grep -q 'application-debuggable'; then
-            echo 'APK 是 debuggable，不符合 release 规格'; exit 1
+          bt="$ANDROID_SDK_ROOT/build-tools/${{ steps.toolchain.outputs.buildTools }}"
+          for tool in aapt2 apksigner; do
+            [[ -x "$bt/$tool" ]] || { echo "缺少 $tool：$bt/$tool" >&2; exit 1; }
+          done
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/standard/release/*.apk)
+          if [[ ${#apks[@]} -ne 1 ]]; then
+            echo "release 目录里应当恰好一个 APK，实际 ${#apks[@]} 个" >&2
+            printf '%s\n' "${apks[@]}"
+            exit 1
           fi
-          if ! "$aapt2" dump badging "$apk" | grep -q "versionCode='181'"; then
-            echo 'versionCode 不是 181'; exit 1
+          apk="${apks[0]}"
+          echo "APK: $apk（$(stat -c%s "$apk") bytes）"
+
+          "$bt/aapt2" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
+          head -12 "$RUNNER_TEMP/badging.txt"
+
+          pkg=$(grep -oE "^package: name='[^']+'" "$RUNNER_TEMP/badging.txt" | sed -E "s/^package: name='//; s/'\$//")
+          vc=$(grep -oE "versionCode='[0-9]+'" "$RUNNER_TEMP/badging.txt" | head -1 | grep -oE '[0-9]+')
+          echo "package=$pkg versionCode=$vc"
+          [[ "$pkg" == "$EXPECTED_PACKAGE" ]] || { echo "包名不符：$pkg != $EXPECTED_PACKAGE" >&2; exit 1; }
+          [[ "$vc" == "$EXPECTED_VERSION_CODE" ]] || { echo "versionCode 不符：$vc != $EXPECTED_VERSION_CODE" >&2; exit 1; }
+
+          # release 规格：不得带 application-debuggable
+          if grep -q 'application-debuggable' "$RUNNER_TEMP/badging.txt"; then
+            echo '::error title=不是 release 规格::badging 出现 application-debuggable' >&2
+            exit 1
           fi
-          if "$aapt2" dump badging "$apk" | grep -q 'x86'; then
-            echo 'APK 混入非 arm64 ABI'; exit 1
-          fi
-          apksigner="$ANDROID_SDK_ROOT/build-tools/${{ steps.toolchain.outputs.buildTools }}/apksigner"
-          "$apksigner" verify --print-certs "$apk" | grep -E 'Signer #1 certificate (DN|SHA-256)|Verified using' || true
+          echo 'PASS 非 debuggable（release 规格）'
+
+          # 原生架构只允许 arm64-v8a（精确比对，不用 grep x86 这种会误伤的写法）
+          nc=$(grep -E '^native-code:' "$RUNNER_TEMP/badging.txt" || true)
+          echo "native-code: $nc"
+          [[ "$nc" == "native-code: '$EXPECTED_ABI'" ]] || { echo "原生架构不符，期望仅 $EXPECTED_ABI：$nc" >&2; exit 1; }
+          echo "PASS 原生架构仅 $EXPECTED_ABI"
+
+          # 签名证书必须就是仓库内那把测试证书
+          "$bt/apksigner" verify --print-certs -v "$apk" | tee "$RUNNER_TEMP/verify.txt" \
+            | grep -E 'Verifies|Verified using v[123] scheme|Signer #1 certificate SHA-256' || true
+          cert=$(grep -oE 'Signer #1 certificate SHA-256 digest: [0-9a-f]+' "$RUNNER_TEMP/verify.txt" | awk '{print $NF}')
+          [[ "$cert" == "$CI_TEST_CERT_SHA256" ]] || { echo "签名证书不符：$cert != $CI_TEST_CERT_SHA256" >&2; exit 1; }
+          echo "PASS 由仓库内测试证书签出，指纹 $cert"
+
           mkdir -p "$RUNNER_TEMP/out"
           cp "$apk" "$RUNNER_TEMP/out/"
           ( cd "$RUNNER_TEMP/out" && sha256sum ./*.apk | tee sha256.txt )
