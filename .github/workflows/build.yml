@@ -45,7 +45,12 @@ env:
   DSHA_KEYSTORE_PASSWORD: ci-test-only-password
   DSHA_KEY_ALIAS: ci-test
   DSHA_KEY_PASSWORD: ci-test-only-password
-  OFFICIAL_APK_URL: https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk
+  # 离线资产（rootfs / ubuntu-tools 及其依赖锁）是**按源码版本锁定**的：
+  # ubuntu-tools.inputs.json 里锁着 prepare-ubuntu-tools.py 与 ubuntu-tools 锁文件的哈希，
+  # 而且 base_status_sha256 要和 rootfs 的 dpkg 状态对上。拿别的版本 APK 里的资产
+  # 必然校验失败。我们是基于 v0.1.7-rc2 源码构建，所以取 v0.1.7-rc2 的官方包；
+  # 被替换的只有 DSH 运行时那一层（dsh-runtime.bin），这也正是本轮升级要验的东西。
+  OFFICIAL_APK_URL: https://github.com/DSH-APP/DSHA/releases/download/v0.1.7-rc2/dsha-0.1.7-rc2.apk
   # 仓库内测试证书的 SHA-256（小写十六进制）；签完必须与实测一致
   CI_TEST_CERT_SHA256: d97170a287714b9e93ec96b04cdd07cbee4f42e7a2d9934acaf2affceb72dd12
   EXPECTED_PACKAGE: com.dsh.client
