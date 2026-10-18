@@ -170,25 +170,84 @@ jobs:
             echo '::notice title=offline-rootfs.bin 未锁定::把上面打印的 sha256 作为 workflow_dispatch 输入以强制校验'
           fi
 
-      - name: Rebuild ubuntu-tools offline archive from the locked debs
-        # 官方包不打包 *.inputs.json（它被 .gitignore 排除且不进入 APK），而
-        # prepare-standard-assets.py 要求 bin 与 inputs.json 成对且与当前脚本自洽。
-        # 所以不伪造元数据，直接用同一版本脚本按锁定的 deb 重新生成两份产物。
+      - name: Verify offline assets against the lock and write the inputs contract
+        # 为什么不在 CI 里「按锁下 deb 重建」：锁里钉的 deb 版本已经在上游镜像下架，
+        # ports.ubuntu.com 对它们返回 404，因此这份归档本身是不可再生的（DSHA 正是
+        # 因此把它随包发布）。这里改为取出同版本官方包的产物，并**用归档自带的
+        # SHA256SUMS / packages.txt / version.txt 与锁文件逐项核对**，再核对 rootfs 的
+        # dpkg 状态哈希，最后按 prepare-ubuntu-tools.py 相同的字段写元数据。
+        # 任何一项对不上就立刻失败，不猜、不补。
+        env:
+          UBUNTU_TOOLS_SHA: ${{ inputs.ubuntu_tools_sha256 }}
         run: |
           set -euo pipefail
-          python3 tools/prepare-ubuntu-tools.py
-          sha256sum app/src/main/assets/ubuntu-tools.bin
-          cat app/src/main/assets/ubuntu-tools.inputs.json
-          if [[ -f /tmp/official/ubuntu-tools.oracle.sha256 ]]; then
-            oracle=$(cat /tmp/official/ubuntu-tools.oracle.sha256)
-            actual=$(sha256sum app/src/main/assets/ubuntu-tools.bin | awk '{print $1}')
-            if [[ "$oracle" == "$actual" ]]; then
-              echo "PASS 重建的 ubuntu-tools.bin 与官方包逐字节一致（$actual）"
-            else
-              echo "::error title=ubuntu-tools 重建与官方包不一致::oracle=$oracle actual=$actual"
-              exit 1
-            fi
-          fi
+          python3 - <<'PY_ASSETS'
+          import hashlib, io, json, tarfile, zipfile
+
+          ROOT = '.'
+          LOCK = 'tools/ubuntu-tools/packages.lock.json'
+          lock = json.load(open(LOCK, encoding='utf-8'))
+
+          def sha_path(path):
+              digest = hashlib.sha256()
+              with open(path, 'rb') as stream:
+                  for chunk in iter(lambda: stream.read(1 << 20), b''):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          targets = {
+              'assets/offline-rootfs.bin': 'app/src/main/assets/offline-rootfs.bin',
+              'assets/ubuntu-tools.bin': 'app/src/main/assets/ubuntu-tools.bin',
+          }
+          with zipfile.ZipFile('/tmp/official/dsha.apk') as apk:
+              names = set(apk.namelist())
+              for entry, target in targets.items():
+                  if entry not in names:
+                      raise SystemExit('官方 APK 里没有 ' + entry)
+                  data = apk.read(entry)
+                  with open(target, 'wb') as out:
+                      out.write(data)
+                  print(f'{entry} -> {target}  {len(data)} bytes  sha256={hashlib.sha256(data).hexdigest()}')
+
+          rows = lock['packages']
+          with tarfile.open(targets['assets/ubuntu-tools.bin'], 'r:gz') as archive:
+              sums = archive.extractfile('SHA256SUMS').read().decode().strip()
+              packages = archive.extractfile('packages.txt').read().decode().strip()
+              version = archive.extractfile('version.txt').read().decode().strip()
+
+          expected_sums = ''.join(row['SHA256'] + '  ' + row['Filename'].split('/')[-1] + '\n' for row in rows).strip()
+          if version != sha_path(LOCK):
+              raise SystemExit('ubuntu-tools 归档的 version.txt 与当前锁不一致：该产物不是由本仓库锁定义生成的')
+          if sums != expected_sums:
+              raise SystemExit('ubuntu-tools 归档的 SHA256SUMS 与 packages.lock.json 不一致')
+          if packages != ' '.join(row['Package'] for row in rows):
+              raise SystemExit('ubuntu-tools 归档的 packages.txt 与 packages.lock.json 不一致')
+          print(f'PASS 归档内容与锁一致（{len(rows)} 个包，version={version[:16]}…）')
+
+          with tarfile.open(targets['assets/offline-rootfs.bin'], 'r:gz') as rootfs:
+              status = None
+              for item in rootfs:
+                  if item.name.removeprefix('./') == 'var/lib/dpkg/status':
+                      status = hashlib.sha256(rootfs.extractfile(item).read()).hexdigest()
+                      break
+          if status is None:
+              raise SystemExit('离线 rootfs 里没有 var/lib/dpkg/status')
+          if status != lock['baseStatusSha256']:
+              raise SystemExit(f'rootfs 的 dpkg 状态与锁不一致，说明 rootfs 与 ubuntu-tools 不是同一代产物：{status}')
+          print('PASS rootfs 的 dpkg 状态与锁一致')
+
+          metadata = {
+              'inputs': {str(p): sha_path(str(p)) for p in ('tools/prepare-ubuntu-tools.py', LOCK)},
+              'archive_sha256': sha_path(targets['assets/ubuntu-tools.bin']),
+              'installed_bytes': sum(int(row['Installed-Size']) * 1024 for row in rows),
+              'base_status_sha256': lock['baseStatusSha256'],
+              'packages': len(rows),
+          }
+          with open('app/src/main/assets/ubuntu-tools.inputs.json', 'w', encoding='utf-8') as out:
+              json.dump(metadata, out, indent=2)
+              out.write('\n')
+          print('已写出 ubuntu-tools.inputs.json：', json.dumps(metadata)[:160], '…')
+          PY_ASSETS
           if [[ -n "${UBUNTU_TOOLS_SHA:-}" ]]; then
             echo "${UBUNTU_TOOLS_SHA}  app/src/main/assets/ubuntu-tools.bin" | sha256sum -c -
           fi
