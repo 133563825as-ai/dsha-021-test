@@ -140,7 +140,7 @@ def _legacy_preset_bundle(source, destination, preset_id):
         json.dump({"name": "dsha-legacy-preset-" + preset_id,
                    "version": "0.0.0-dsha-migration", "private": True, "type": "module",
                    "dsh": {"bundle": {"patch": "./cordis.patch.yml"}},
-                   "dependencies": {"@deepseek-ai/dsh-agent-preset": "0.1.7-rc.2"}},
+                   "dependencies": {"@deepseek-ai/dsh-agent-preset": "0.2.1-rc.2"}},
                   out, ensure_ascii=False, indent=2); out.write("\n")
     with open(os.path.join(bundle, "cordis.patch.yml"), "w", encoding="utf-8") as out:
         out.write("- insert:\n    - id: preset-%s\n      name: '@deepseek-ai/dsh-agent-preset'\n      config:\n%s\n" % (preset_id, "\n".join(rows)))
