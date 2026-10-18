@@ -13,7 +13,9 @@
 | 应用名 | **DSHA 测试包** |
 | 签名 | 仓库内 `ci/test-signing.keystore`（测试签名） |
 | ABI | arm64-v8a |
-| 构建 | GitHub Actions，`.github/workflows/build.yml` |
+| 构建 | GitHub Actions，`.github/workflows/build.yml`（2026-10-18 全绿，20 步） |
+| 产物 | 301 MB，`release` 标签下可直接下载（免登录） |
+| 复现性 | CI 打出的 `dsh-runtime.bin` 与本机独立构建哈希一致：`1ccfdef0aa7c5436…` |
 
 **这个包不能覆盖安装正式版**：正式版是历史 E7E3 证书签的，测试签名对不上，系统会拒绝覆盖。想在同一台机器上试，只能先卸载正式版（会丢数据，先备份）或者换一台设备。
 
@@ -116,6 +118,16 @@ DSH 0.2.x 把依赖重构成了 bundle 形态：`dsh-base`、`dsh-web-app`、`ds
 - `npm ci`（linux/arm64/glibc）+ 生成 `dsh-runtime.bin`；
 - 重新生成描述符与受管输入证明、裁剪 rootfs 内嵌新运行时、刷新应急运行时锁；
 - `assembleStandardRelease` + APK 校验（`debuggable` 必须不存在、`versionCode 181`、只含 arm64-v8a、证书指纹比对）。
+
+**CI 已实际验到的硬事实（都是构建期断言，不是推断）**
+
+- APK 内 `assets/dsh-runtime.bin` 的 `dsh-runtime.version` = `0.2.1-rc.2`；
+- APK 内 `assets/builtin-plugins/dsh-tool-vscreen/cordis.patch.yml` 已含 `insert` 行（不再是 `[]`）；
+- `aapt2` 确认 `debuggable` 不存在、`versionCode 181`、`native-code` 仅 `arm64-v8a`；
+- `apksigner` 确认签名证书指纹 = 仓库内测试证书；
+- 宿主侧冒烟：`tools/prepare-test-runtime.py` + `test-recovery-agent.mjs` 在真实 0.2.1 运行时树上通过；
+- 离线资产契约：`ubuntu-tools.bin` 归档内的 `SHA256SUMS` / `packages.txt` 与 `packages.lock.json` 逐项一致，
+  rootfs 的 `var/lib/dpkg/status` 哈希与锁里的 `baseStatusSha256` 一致。
 
 **没做（必须真机）**
 
