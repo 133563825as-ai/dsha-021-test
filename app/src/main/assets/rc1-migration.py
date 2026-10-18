@@ -4,7 +4,7 @@
 import argparse, hashlib, json, os, re, shutil, stat, tempfile, time, uuid
 from pathlib import Path
 
-VERSION = '0.1.7-rc.2'
+VERSION = '0.2.1-rc.2'
 # Stable asset marker: settings.yaml.imported is a retryable input after a
 # pending section result; it never authorizes a false committed receipt.
 RESTORED_SETTINGS_IMPORTED_FOR_RETRY = True
