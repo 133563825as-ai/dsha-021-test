@@ -284,6 +284,10 @@ jobs:
                 app/build/generated/standardAssets/dsh-runtime.bin
           sha256sum app/build/generated/standardAssets/offline-rootfs.bin
 
+      - name: Check hardcoded Java anchors against the built runtime
+        # 防止「补丁清单都审过、却在 Java 里写死的锚点悄悄失效」这一类回归。
+        run: python3 ci/check-hardcoded-anchors.py app/build/locked-dsh-runtime/node_modules
+
       - name: Refresh recovery-runtime pins for this build
         run: |
           set -euo pipefail
