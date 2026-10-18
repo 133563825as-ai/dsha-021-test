@@ -212,9 +212,15 @@ def stop_targets(plan, shell):
             raise Blocked('应用清单不完整')
         groups += '[系统应用]\n' if system else '[用户应用]\n'
         for row in output.splitlines():
-            if not row.strip():
+            row = row.strip()
+            if not row:
                 continue
-            match = re.fullmatch(r'package:([A-Za-z0-9_.]+) uid:([0-9]+(?:,[0-9]+)*)', row.strip())
+            # 多用户设备上 pm 会把「无权访问 user N」的提示混进包列表（issue #115）：
+            # 这一行既不是包，也不代表没有权限——跳过即可，不能因此整体拒绝结束应用。
+            # 只放过 pm 自己的 Error 噪声；其它不认识的行仍然按格式错误处理。
+            if row.startswith('Error:'):
+                continue
+            match = re.fullmatch(r'package:([A-Za-z0-9_.]+) uid:([0-9]+(?:,[0-9]+)*)', row)
             if not match:
                 raise Blocked('应用清单格式无法确认')
             apps.append(dict(name=match[1], uids={int(value) for value in match[2].split(',')}, system=system))

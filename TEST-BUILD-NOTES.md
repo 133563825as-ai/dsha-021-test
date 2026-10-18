@@ -103,7 +103,7 @@ DSH 0.2.x 把依赖重构成了 bundle 形态：`dsh-base`、`dsh-web-app`、`ds
 | # | 现象 | 根因 | 本轮 |
 |---|---|---|---|
 | 100 | 虚拟屏在 ColorOS/A16 恒报 `START_RESULT_UNKNOWN` | `--launch` 父进程不退出 | 已修，1 行 |
-| 115 | 多用户设备「结束应用」100% `POLICY_BLOCKED` | `pm` 输出里混入别的用户 `Error: ... user 666`，解析层整体拒绝 | 已修，跳过 `Error:` 噪声行 |
+| 115 | 多用户设备「结束应用」100% `POLICY_BLOCKED` | `pm` 输出里混入别的用户 `Error: ... user 666`，解析层整体拒绝 | 已修，跳过 `Error:` 噪声行（**Java 与容器侧 Python 两处都要修**；此前只修了 Java，ADB 通道走的是 Python，真机实测仍被拒） |
 | 108 | 导出 `xxx.mp4` 落盘成 `xxx.mp4.gz`，相册不索引 | 非 txt/zip 一律 `application/gzip`，MediaStore 按 MIME 补后缀 | 已修，按扩展名给 MIME，未知一律 `octet-stream` |
 | 86/143 | 读屏与虚拟屏树被反序矩形吃掉配额 | 只按「有文字/可点」筛选，不看矩形是否有序 | 已修，两处共用同一判据 |
 | 98 | 局域网 401/408/503 共用一句「Request could not be processed」 | 失败文案不区分状态 | 已修，按状态给可自救的提示 |
